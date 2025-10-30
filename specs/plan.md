@@ -301,12 +301,279 @@ mounted() {
 }
 ```
 
+## Security & Environment Configuration
+
+### Overview
+When transitioning from prototype to production with a server component, proper secrets management is critical. This section outlines security best practices for the eventual backend.
+
+### Environment Variables (.env)
+
+**Purpose:**
+- Store sensitive credentials outside of source code
+- Different configurations for development, staging, production
+- Never commit secrets to git
+
+**Required Environment Variables:**
+
+```bash
+# .env file (NEVER commit to git!)
+
+# OpenAI API (for sentence generation)
+OPENAI_API_KEY=sk-...your-key-here...
+
+# Database connection
+DATABASE_URL=postgresql://user:password@host:port/dbname
+DATABASE_SSL=true
+
+# Session/Authentication
+SESSION_SECRET=random-64-char-hex-string
+JWT_SECRET=another-random-64-char-hex-string
+
+# Application
+NODE_ENV=development  # or production
+PORT=3000
+FRONTEND_URL=http://localhost:8080
+
+# Optional: Chinese NLP services
+JIEBA_MODEL_PATH=/path/to/jieba/models
+PINYIN_API_KEY=...if-using-external-service...
+
+# Analytics (optional)
+ANALYTICS_KEY=...
+```
+
+**Example .env.example (safe to commit):**
+
+```bash
+# Copy this to .env and fill in your actual values
+OPENAI_API_KEY=your_openai_api_key_here
+DATABASE_URL=your_database_connection_string
+SESSION_SECRET=generate_random_secret_here
+JWT_SECRET=generate_another_random_secret_here
+NODE_ENV=development
+PORT=3000
+```
+
+### .gitignore Configuration
+
+**Critical files to exclude:**
+
+```gitignore
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Credentials
+credentials.json
+service-account-key.json
+*.pem
+*.key
+
+# Secrets
+secrets/
+config/secrets.yml
+
+# Database
+*.sqlite
+*.db
+database.json
+
+# Logs (may contain sensitive data)
+logs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Dependencies
+node_modules/
+venv/
+__pycache__/
+
+# Build artifacts
+dist/
+build/
+*.pyc
+```
+
+### Server Architecture Security
+
+**Backend Stack (Python recommended):**
+
+```python
+# server.py example structure
+from flask import Flask
+from dotenv import load_dotenv
+import os
+
+# Load environment variables
+load_dotenv()
+
+app = Flask(__name__)
+
+# Access secrets safely
+OPENAI_KEY = os.getenv('OPENAI_API_KEY')
+DATABASE_URL = os.getenv('DATABASE_URL')
+
+# NEVER do this:
+# OPENAI_KEY = "sk-hardcoded-key"  ❌ BAD!
+
+# Configuration class
+class Config:
+    SECRET_KEY = os.environ.get('SESSION_SECRET')
+    DATABASE_URI = os.environ.get('DATABASE_URL')
+    OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
+
+    @staticmethod
+    def validate():
+        """Fail fast if required env vars missing"""
+        required = ['SESSION_SECRET', 'DATABASE_URL', 'OPENAI_API_KEY']
+        missing = [var for var in required if not os.getenv(var)]
+        if missing:
+            raise ValueError(f"Missing required env vars: {missing}")
+
+# Validate on startup
+Config.validate()
+```
+
+### Security Best Practices
+
+**1. API Key Management:**
+- ✅ Store in environment variables
+- ✅ Rotate keys periodically
+- ✅ Use different keys for dev/staging/prod
+- ❌ Never commit to git
+- ❌ Never log API keys
+- ❌ Never send to frontend
+
+**2. Database Security:**
+- Use connection pooling
+- Enable SSL/TLS for connections
+- Use parameterized queries (prevent SQL injection)
+- Implement row-level security for user data
+- Regular backups with encryption
+
+**3. User Data Protection:**
+- Hash passwords (bcrypt, argon2)
+- Encrypt sensitive user data at rest
+- Use HTTPS only (no HTTP)
+- Implement CSRF protection
+- Rate limiting on API endpoints
+- Input validation and sanitization
+
+**4. Session Management:**
+- Secure, httpOnly cookies
+- Short session expiry
+- Regenerate session IDs after login
+- Implement logout functionality
+- Monitor for suspicious activity
+
+### Deployment Checklist
+
+Before deploying to production:
+
+- [ ] All secrets in environment variables (not code)
+- [ ] .env files in .gitignore
+- [ ] HTTPS enabled with valid certificate
+- [ ] Database connections use SSL
+- [ ] API rate limiting implemented
+- [ ] Input validation on all endpoints
+- [ ] Error messages don't leak sensitive info
+- [ ] Logging configured (without secrets)
+- [ ] Security headers set (CSP, HSTS, etc.)
+- [ ] Dependencies scanned for vulnerabilities
+- [ ] Backup strategy implemented
+- [ ] Monitoring and alerting set up
+
+### Local Development Setup
+
+**For new developers:**
+
+```bash
+# 1. Clone repository
+git clone https://github.com/kazad/langy.git
+cd langy
+
+# 2. Copy example env file
+cp .env.example .env
+
+# 3. Edit .env with your credentials
+nano .env  # or use your editor
+
+# 4. Never commit .env
+git status  # should NOT show .env
+
+# 5. Install dependencies
+pip install -r requirements.txt  # Python
+# or
+npm install  # Node.js
+
+# 6. Verify configuration
+python -c "from dotenv import load_dotenv; load_dotenv(); import os; print('✓ Config loaded')"
+```
+
+### Production Deployment
+
+**Environment variables on hosting platforms:**
+
+**Heroku:**
+```bash
+heroku config:set OPENAI_API_KEY=sk-...
+heroku config:set DATABASE_URL=postgresql://...
+```
+
+**Vercel:**
+```bash
+vercel env add OPENAI_API_KEY
+vercel env add DATABASE_URL
+```
+
+**Docker:**
+```yaml
+# docker-compose.yml
+services:
+  web:
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+```
+
+**AWS / Cloud:**
+- Use AWS Secrets Manager or Parameter Store
+- Azure Key Vault
+- Google Cloud Secret Manager
+
+### Monitoring & Alerts
+
+**What to monitor:**
+- Failed login attempts (potential attacks)
+- API key usage (detect leaks)
+- Database connection errors
+- Unusual traffic patterns
+- Error rates by endpoint
+
+**Alert on:**
+- API key used from unexpected IP
+- Sudden spike in requests
+- Database connection failures
+- Authentication errors above threshold
+
 ## Future Enhancements
-- Connect to real backend API
-- Implement actual Bayesian model for level estimation
+- Connect to real backend API (with proper .env configuration)
+- Implement actual Bayesian model server-side
 - Add more vocabulary words with frequency ranking
 - Support multiple languages
 - Track time decay (forgetting curve)
-- Audio pronunciation
+- Audio pronunciation (external API with key in .env)
 - Spaced repetition algorithm
 - **Add vocabulary data validation** to catch mismatches
+- Implement user authentication (OAuth, JWT)
+- Rate limiting and abuse prevention

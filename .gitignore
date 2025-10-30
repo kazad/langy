@@ -1,0 +1,56 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Credentials
+credentials.json
+service-account-key.json
+*.pem
+*.key
+
+# Secrets
+secrets/
+config/secrets.yml
+
+# Database
+*.sqlite
+*.db
+database.json
+
+# Logs (may contain sensitive data)
+logs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Dependencies
+node_modules/
+venv/
+env/
+__pycache__/
+*.pyc
+
+# Build artifacts
+dist/
+build/
+.next/
+out/
+
+# Testing
+coverage/
+.pytest_cache/
+.coverage
+
+# Temporary files
+*.tmp
+*.bak
+*~
