@@ -78,18 +78,38 @@
                 <!-- Debug Panel Content -->
                 <transition name="toolbar">
                     <div v-if="!debugPanelCollapsed" class="p-4 space-y-3 text-sm">
-                        <!-- Level Estimation -->
+                        <!-- Level Estimation with Uncertainty -->
                         <div class="border-b border-gray-200 pb-3">
                             <div class="font-semibold text-gray-900 mb-2">User Level Estimate</div>
-                            <div class="flex items-center gap-3">
-                                <div class="flex-1 bg-gray-200 rounded-full h-3 overflow-hidden">
+
+                            <!-- Progress bar with uncertainty band -->
+                            <div class="relative mb-2">
+                                <!-- Uncertainty band (light purple) -->
+                                <div class="absolute h-3 bg-purple-200 rounded-full transition-all duration-500"
+                                     :style="{
+                                         left: backendState.levelLower + '%',
+                                         width: (backendState.levelUpper - backendState.levelLower) + '%'
+                                     }"></div>
+
+                                <!-- Background -->
+                                <div class="relative bg-gray-200 rounded-full h-3 overflow-hidden">
+                                    <!-- Point estimate (dark purple) -->
                                     <div class="bg-purple-600 h-full transition-all duration-500"
                                          :style="{width: backendState.level + '%'}"></div>
                                 </div>
-                                <span class="font-bold text-purple-600 text-lg">{{ backendState.level }}%</span>
                             </div>
-                            <div class="text-xs text-gray-600 mt-1">
+
+                            <!-- Numerical display -->
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="font-bold text-purple-600 text-lg">{{ backendState.level }}%</span>
+                                <span class="text-xs text-gray-600">
+                                    95% CI: [{{ backendState.levelLower }}%-{{ backendState.levelUpper }}%]
+                                </span>
+                            </div>
+
+                            <div class="text-xs text-gray-600">
                                 Confidence: <span class="font-medium">{{ backendState.confidence }}</span>
+                                <span v-if="backendState.uncertainty > 0"> (±{{ backendState.uncertainty }}%)</span>
                             </div>
                         </div>
 
@@ -761,7 +781,7 @@
                     return this.vocabulary[this.currentWordIndex];
                 },
 
-                // Backend state calculations
+                // Backend state calculations with Bayesian uncertainty
                 backendState() {
                     const responses = Object.values(this.wordResponses);
                     const knowSentenceCount = responses.filter(r => r === 'know-sentence').length;
@@ -770,19 +790,27 @@
                     const dontKnowCount = responses.filter(r => r === 'dont-know').length;
                     const totalResponses = responses.length;
 
-                    // Calculate estimated level (0-100)
-                    // know-sentence = 3 points, know-word = 2 points, uncertain = 1 point, don't know = 0 points
-                    const totalPoints = (knowSentenceCount * 3) + (knowWordCount * 2) + (uncertainCount * 1);
-                    const maxPoints = totalResponses * 3;
-                    const level = maxPoints > 0 ? Math.round((totalPoints / maxPoints) * 100) : 0;
+                    // Calculate Bayesian statistics with uncertainty quantification
+                    const stats = totalResponses > 0
+                        ? this.calculateBayesianStats(responses)
+                        : { mean: 0, stdDev: 50, ciLower: 0, ciUpper: 100, sampleSize: 0 };
 
                     // Estimate vocabulary size based on performance
                     // Assuming our 15 words represent different frequency bands
                     const estimatedVocab = Math.round(knowSentenceCount * 150 + knowWordCount * 100 + uncertainCount * 50);
 
                     return {
-                        level,
+                        // Bayesian level estimate with uncertainty
+                        level: stats.mean,
+                        levelLower: stats.ciLower,
+                        levelUpper: stats.ciUpper,
+                        uncertainty: stats.stdDev,
+                        confidence: this.getConfidenceLevel(stats.stdDev, totalResponses),
+
+                        // Vocabulary estimate
                         estimatedVocab,
+
+                        // Response breakdown
                         knowSentenceCount,
                         knowWordCount,
                         uncertainCount,
@@ -791,8 +819,7 @@
                         knowSentencePercentage: totalResponses > 0 ? Math.round((knowSentenceCount / totalResponses) * 100) : 0,
                         knowWordPercentage: totalResponses > 0 ? Math.round((knowWordCount / totalResponses) * 100) : 0,
                         uncertainPercentage: totalResponses > 0 ? Math.round((uncertainCount / totalResponses) * 100) : 0,
-                        dontKnowPercentage: totalResponses > 0 ? Math.round((dontKnowCount / totalResponses) * 100) : 0,
-                        confidence: totalResponses >= 10 ? 'High' : totalResponses >= 5 ? 'Medium' : 'Low'
+                        dontKnowPercentage: totalResponses > 0 ? Math.round((dontKnowCount / totalResponses) * 100) : 0
                     };
                 }
             },
@@ -929,6 +956,56 @@
                     this.cardFlipped = false;
                     this.translationVisible = false;
                     this.minimalistPhase = 1;
+                },
+
+                // Bayesian statistics calculation using Beta distribution
+                calculateBayesianStats(responses) {
+                    // Prior: Beta(1, 1) - uniform prior (no initial bias)
+                    let alpha = 1;
+                    let beta = 1;
+
+                    // Weight mapping for 4-level response system
+                    const weights = {
+                        'know-sentence': 1.0,   // Full comprehension
+                        'know-word': 0.67,      // Partial comprehension
+                        'uncertain': 0.33,      // Weak signal
+                        'dont-know': 0.0        // No knowledge
+                    };
+
+                    // Update posterior with each response
+                    responses.forEach(r => {
+                        const weight = weights[r] || 0;
+                        alpha += weight;
+                        beta += (1 - weight);
+                    });
+
+                    // Calculate statistics from Beta(alpha, beta)
+                    const n = alpha + beta;
+                    const mean = alpha / n;
+                    const variance = (alpha * beta) / ((n ** 2) * (n + 1));
+                    const stdDev = Math.sqrt(variance);
+
+                    // 95% credible interval (Bayesian confidence interval)
+                    const marginOfError = 1.96 * stdDev;
+
+                    return {
+                        mean: Math.round(mean * 100),
+                        stdDev: Math.round(stdDev * 100),
+                        ciLower: Math.max(0, Math.round((mean - marginOfError) * 100)),
+                        ciUpper: Math.min(100, Math.round((mean + marginOfError) * 100)),
+                        sampleSize: responses.length,
+                        alpha,
+                        beta
+                    };
+                },
+
+                // Confidence level based on uncertainty, not just sample size
+                getConfidenceLevel(stdDev, sampleSize) {
+                    if (sampleSize < 3) return 'Very Low';
+                    if (stdDev > 20) return 'Low';
+                    if (stdDev > 12) return 'Medium';
+                    if (stdDev > 7) return 'High';
+                    return 'Very High';
                 },
 
                 // Draggable toolbar methods

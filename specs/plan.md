@@ -139,29 +139,82 @@ Based on user feedback, all designs emphasize:
 - Load from localStorage on mount
 - Graceful fallback if localStorage unavailable
 
-### Level Estimation Algorithm
+### Level Estimation Algorithm - Bayesian Approach
 
-**Scoring System:**
-- Know Whole Sentence: 3 points
-- Know the Word: 2 points
-- Uncertain: 1 point
-- Don't Know: 0 points
+**Core Problem:** We're estimating a user's unknown true proficiency level through statistical sampling. Each response is a noisy signal about their true level, and we need to:
+1. Provide a point estimate (most likely level)
+2. Quantify our uncertainty (confidence interval)
+3. Update beliefs as we get more data (Bayesian updating)
 
-**Level Calculation:**
+**Statistical Model: Beta Distribution**
+
+We use a **Beta(α, β) distribution** to model the posterior probability of the user's proficiency:
+
+**Why Beta Distribution?**
+- Natural for modeling proportions (0-100%)
+- Conjugate prior makes Bayesian updating simple
+- Built-in uncertainty that decreases with sample size
+- Always produces valid probabilities (bounded [0,1])
+
+**Prior:** Beta(1, 1) = Uniform distribution (no initial bias)
+
+**Weight Mapping:**
+- "Know Whole Sentence" → weight = 1.0 (full success)
+- "Know the Word" → weight = 0.67 (partial success)
+- "Uncertain" → weight = 0.33 (weak signal)
+- "Don't Know" → weight = 0.0 (failure)
+
+**Posterior Update:**
+For each response with weight w:
 ```
-level = (totalPoints / maxPossiblePoints) * 100
-where maxPossiblePoints = totalResponses * 3
+α_new = α_old + w
+β_new = β_old + (1 - w)
 ```
+
+**Point Estimate (Mean):**
+```
+level = α / (α + β) × 100
+```
+
+**Uncertainty (Standard Deviation):**
+```
+variance = (α × β) / [(α + β)² × (α + β + 1)]
+stdDev = √variance × 100
+```
+
+**95% Credible Interval:**
+```
+marginOfError = 1.96 × stdDev
+CI_lower = max(0, level - marginOfError)
+CI_upper = min(100, level + marginOfError)
+```
+
+**Example Progression:**
+```
+n=1,  "Know Sentence" → 67% ± 27% (CI: 40%-94%)   Confidence: Very Low
+n=2,  mixed responses → 62% ± 21% (CI: 41%-83%)   Confidence: Very Low
+n=5,  mixed responses → 58% ± 14% (CI: 44%-72%)   Confidence: Medium
+n=10, mixed responses → 57% ± 10% (CI: 47%-67%)   Confidence: High
+n=20, mixed responses → 56% ± 7%  (CI: 49%-63%)   Confidence: Very High
+```
+
+**Confidence Levels (based on uncertainty, not just sample size):**
+- Very Low: < 3 responses
+- Low: stdDev > 20%
+- Medium: stdDev > 12%
+- High: stdDev > 7%
+- Very High: stdDev ≤ 7%
 
 **Vocabulary Estimation:**
 ```
-estimatedVocab = (knowSentence * 150) + (knowWord * 100) + (uncertain * 50)
+estimatedVocab = (knowSentence × 150) + (knowWord × 100) + (uncertain × 50)
 ```
 
-**Confidence Levels:**
-- Low: < 5 responses
-- Medium: 5-9 responses
-- High: 10+ responses
+**Visualization:**
+- **Light purple band** = 95% confidence interval (uncertainty range)
+- **Dark purple bar** = point estimate (most likely level)
+- Band gets narrower as user answers more questions
+- Text shows: "X% ± Y%, CI: [A%-B%], Confidence: Level"
 
 ### Styling Strategy
 - TailwindCSS for all layout and utilities
