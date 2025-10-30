@@ -1,0 +1,41 @@
+{
+  "timestamp": "2025-10-30T17:15:25.441Z",
+  "currentDesign": 2,
+  "designFeedback": {
+    "1": "decent, standard. needs to show a full sentence. could highlight the word you're trying to learn. because you want to learn in context.",
+    "2": "has two repetitions, show a single sentence with the word highlighted. ideal: shows full sentence, word you want is highlighted, then you click it and it reveals the translation.",
+    "3": "don't need this, not a ",
+    "4": "don't like this, it gives it away",
+    "5": ""
+  },
+  "sessionData": {
+    "wordsReviewed": 0,
+    "lastVisit": 1761844381642
+  },
+  "progress": {
+    "currentWordIndex": 0,
+    "totalWords": 15
+  },
+  "allFeedback": [
+    {
+      "design": 1,
+      "designName": "Card Flip",
+      "feedback": "decent, standard. needs to show a full sentence. could highlight the word you're trying to learn. because you want to learn in context."
+    },
+    {
+      "design": 2,
+      "designName": "Sentence Highlight",
+      "feedback": "has two repetitions, show a single sentence with the word highlighted. ideal: shows full sentence, word you want is highlighted, then you click it and it reveals the translation."
+    },
+    {
+      "design": 3,
+      "designName": "Progressive Reveal",
+      "feedback": "don't need this, not a "
+    },
+    {
+      "design": 4,
+      "designName": "Split View",
+      "feedback": "don't like this, it gives it away"
+    }
+  ]
+}

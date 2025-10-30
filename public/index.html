@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Langy - Language Learning Prototype</title>
+
+    <!-- TailwindCSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Vue.js 3 CDN -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+    <style>
+        [v-cloak] { display: none; }
+
+        /* Card flip animation */
+        .flip-card {
+            perspective: 1000px;
+        }
+        .flip-card-inner {
+            transition: transform 0.6s;
+            transform-style: preserve-3d;
+        }
+        .flip-card.flipped .flip-card-inner {
+            transform: rotateY(180deg);
+        }
+        .flip-card-front, .flip-card-back {
+            backface-visibility: hidden;
+        }
+        .flip-card-back {
+            transform: rotateY(180deg);
+        }
+
+        /* Smooth transitions */
+        .fade-enter-active, .fade-leave-active {
+            transition: opacity 0.3s;
+        }
+        .fade-enter-from, .fade-leave-to {
+            opacity: 0;
+        }
+
+        /* Toolbar animations */
+        .toolbar-enter-active, .toolbar-leave-active {
+            transition: all 0.3s ease;
+        }
+        .toolbar-enter-from {
+            transform: translateY(-100%);
+            opacity: 0;
+        }
+        .toolbar-leave-to {
+            transform: translateY(-100%);
+            opacity: 0;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="app" v-cloak>
+        <!-- Backend Debug Panel -->
+        <div class="z-50"
+             :class="debugPosition.x === null ? 'fixed bottom-4 left-4' : 'fixed'"
+             :style="debugPosition.x !== null ? {left: debugPosition.x + 'px', top: debugPosition.y + 'px'} : {}">
+            <div class="bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden"
+                 :class="{'w-80': !debugPanelCollapsed, 'w-auto': debugPanelCollapsed}">
+
+                <!-- Debug Panel Header -->
+                <div @mousedown="startDragDebug"
+                     class="bg-purple-600 text-white p-3 flex items-center justify-between cursor-move select-none">
+                    <span class="font-semibold text-sm" v-if="!debugPanelCollapsed">Backend Debug</span>
+                    <button @click="debugPanelCollapsed = !debugPanelCollapsed; saveToLocalStorage()"
+                            @mousedown.stop
+                            class="text-white hover:text-purple-100 transition cursor-pointer">
+                        <span v-if="debugPanelCollapsed">⚙</span>
+                        <span v-else>✕</span>
+                    </button>
+                </div>
+
+                <!-- Debug Panel Content -->
+                <transition name="toolbar">
+                    <div v-if="!debugPanelCollapsed" class="p-4 space-y-3 text-sm">
+                        <!-- Level Estimation -->
+                        <div class="border-b border-gray-200 pb-3">
+                            <div class="font-semibold text-gray-900 mb-2">User Level Estimate</div>
+                            <div class="flex items-center gap-3">
+                                <div class="flex-1 bg-gray-200 rounded-full h-3 overflow-hidden">
+                                    <div class="bg-purple-600 h-full transition-all duration-500"
+                                         :style="{width: backendState.level + '%'}"></div>
+                                </div>
+                                <span class="font-bold text-purple-600 text-lg">{{ backendState.level }}%</span>
+                            </div>
+                            <div class="text-xs text-gray-600 mt-1">
+                                Confidence: <span class="font-medium">{{ backendState.confidence }}</span>
+                            </div>
+                        </div>
+
+                        <!-- Vocabulary Size Estimate -->
+                        <div class="border-b border-gray-200 pb-3">
+                            <div class="font-semibold text-gray-900 mb-1">Estimated Vocabulary</div>
+                            <div class="text-2xl font-bold text-purple-600">
+                                ~{{ backendState.estimatedVocab }} words
+                            </div>
+                        </div>
+
+                        <!-- Performance Breakdown -->
+                        <div class="border-b border-gray-200 pb-3">
+                            <div class="font-semibold text-gray-900 mb-2">Performance</div>
+                            <div class="space-y-2">
+                                <div class="flex justify-between items-center">
+                                    <span class="text-gray-700 text-xs">✓✓ Know Sentence</span>
+                                    <span class="font-semibold text-green-800">
+                                        {{ backendState.knowSentenceCount }} ({{ backendState.knowSentencePercentage }}%)
+                                    </span>
+                                </div>
+                                <div class="flex justify-between items-center">
+                                    <span class="text-gray-700 text-xs">✓ Know Word</span>
+                                    <span class="font-semibold text-green-600">
+                                        {{ backendState.knowWordCount }} ({{ backendState.knowWordPercentage }}%)
+                                    </span>
+                                </div>
+                                <div class="flex justify-between items-center">
+                                    <span class="text-gray-700 text-xs">~ Uncertain</span>
+                                    <span class="font-semibold text-amber-700">
+                                        {{ backendState.uncertainCount }} ({{ backendState.uncertainPercentage }}%)
+                                    </span>
+                                </div>
+                                <div class="flex justify-between items-center">
+                                    <span class="text-gray-700 text-xs">✗ Don't Know</span>
+                                    <span class="font-semibold text-red-700">
+                                        {{ backendState.dontKnowCount }} ({{ backendState.dontKnowPercentage }}%)
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Simulated Server State -->
+                        <div>
+                            <div class="font-semibold text-gray-900 mb-2">Server State</div>
+                            <div class="bg-gray-50 rounded p-2 text-xs font-mono max-h-40 overflow-y-auto">
+                                <pre>{{ JSON.stringify({
+                                    userId: 'demo-user',
+                                    level: backendState.level,
+                                    vocabSize: backendState.estimatedVocab,
+                                    responses: backendState.totalResponses,
+                                    lastActivity: new Date(sessionData.lastVisit).toISOString()
+                                }, null, 2) }}</pre>
+                            </div>
+                        </div>
+                    </div>
+                </transition>
+            </div>
+        </div>
+
+        <!-- Floating Toolbar -->
+        <div class="z-50"
+             :class="toolbarPosition.x === null ? 'fixed top-4 right-4' : 'fixed'"
+             :style="toolbarPosition.x !== null ? {left: toolbarPosition.x + 'px', top: toolbarPosition.y + 'px'} : {}">
+            <div class="bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden"
+                 :class="{'w-80': !toolbarCollapsed, 'w-auto': toolbarCollapsed}">
+
+                <!-- Toolbar Header -->
+                <div @mousedown="startDragToolbar"
+                     class="bg-blue-600 text-white p-3 flex items-center justify-between cursor-move select-none">
+                    <span class="font-semibold" v-if="!toolbarCollapsed">Design Prototype</span>
+                    <button @click="toolbarCollapsed = !toolbarCollapsed; saveToLocalStorage()"
+                            @mousedown.stop
+                            class="text-white hover:text-blue-100 transition cursor-pointer">
+                        <span v-if="toolbarCollapsed">☰</span>
+                        <span v-else>✕</span>
+                    </button>
+                </div>
+
+                <!-- Toolbar Content -->
+                <transition name="toolbar">
+                    <div v-if="!toolbarCollapsed" class="p-4 space-y-4">
+                        <!-- Design Switcher -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                Current Design
+                            </label>
+                            <select v-model.number="currentDesign"
+                                    @change="saveToLocalStorage"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <option value="1">1. Card Flip</option>
+                                <option value="2">2. Sentence Highlight</option>
+                                <option value="3">3. Sentence First</option>
+                                <option value="4">4. Split View</option>
+                                <option value="5">5. Minimalist Flow</option>
+                            </select>
+                        </div>
+
+                        <!-- Feedback for Current Design -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                Feedback for Design {{ currentDesign }}
+                            </label>
+                            <textarea v-model="designFeedback[currentDesign]"
+                                      @input="saveToLocalStorage"
+                                      placeholder="Your thoughts on this design..."
+                                      class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent h-24 text-sm"
+                                      ></textarea>
+                        </div>
+
+                        <!-- Stats -->
+                        <div class="text-xs text-gray-700 border-t border-gray-300 pt-3">
+                            <div>Progress: {{ currentWordIndex + 1 }} / {{ vocabulary.length }}</div>
+                            <div>Words Reviewed: {{ sessionData.wordsReviewed }}</div>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="space-y-2">
+                            <button @click="exportFeedback"
+                                    class="w-full bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition text-sm font-medium">
+                                Export All Feedback
+                            </button>
+                            <button @click="resetData"
+                                    class="w-full bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 transition text-sm font-medium">
+                                Reset All Data
+                            </button>
+                        </div>
+                    </div>
+                </transition>
+            </div>
+        </div>
+
+        <!-- Main Content Area -->
+        <div class="min-h-screen flex items-center justify-center p-4">
+            <div class="w-full max-w-2xl">
+                <!-- Design 1: Card Flip -->
+                <div v-if="currentDesign === 1" class="space-y-6">
+                    <div class="text-center mb-4">
+                        <h2 class="text-2xl font-bold text-gray-800">Card Flip Design</h2>
+                        <p class="text-gray-600 text-sm">Click the card to flip and see translation</p>
+                    </div>
+
+                    <div class="flip-card" :class="{'flipped': cardFlipped}">
+                        <div class="flip-card-inner relative h-80">
+                            <!-- Front: Sentence with highlighted word -->
+                            <div @click="cardFlipped = !cardFlipped"
+                                 class="flip-card-front absolute inset-0 bg-white rounded-2xl shadow-xl p-8 cursor-pointer border-4 border-blue-500">
+                                <div class="flex flex-col items-center justify-center h-full space-y-6">
+                                    <!-- Full sentence with highlighted word -->
+                                    <div class="text-3xl text-center leading-relaxed">
+                                        <span v-for="(char, idx) in currentWord.sentence.split('')" :key="idx">
+                                            <span v-if="currentWord.sentence.indexOf(currentWord.word) <= idx &&
+                                                       idx < currentWord.sentence.indexOf(currentWord.word) + currentWord.word.length"
+                                                  class="bg-amber-400 px-1 font-bold text-gray-900">{{ char }}</span>
+                                            <span v-else class="text-gray-800">{{ char }}</span>
+                                        </span>
+                                    </div>
+                                    <!-- Pinyin for highlighted word -->
+                                    <div class="text-xl text-gray-700">
+                                        {{ currentWord.pinyin }}
+                                    </div>
+                                    <div class="text-gray-600 text-sm">
+                                        Click to see translation
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Back: Translation -->
+                            <div @click="cardFlipped = !cardFlipped"
+                                 class="flip-card-back absolute inset-0 bg-blue-50 rounded-2xl shadow-xl p-8 cursor-pointer border-4 border-blue-500">
+                                <div class="flex flex-col items-center justify-center h-full text-gray-900 space-y-6">
+                                    <div class="text-3xl font-bold">
+                                        {{ currentWord.word }} = {{ currentWord.english }}
+                                    </div>
+                                    <div class="text-xl text-center text-gray-700 italic">
+                                        {{ currentWord.sentenceEnglish }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap gap-3 justify-center mt-8">
+                        <button @click="handleResponse('know-sentence')"
+                                class="px-5 py-3 bg-green-700 text-white rounded-lg hover:bg-green-800 transition font-medium shadow-md">
+                            Know Whole Sentence
+                        </button>
+                        <button @click="handleResponse('know-word')"
+                                class="px-5 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition font-medium shadow-md">
+                            Know the Word
+                        </button>
+                        <button @click="handleResponse('uncertain')"
+                                class="px-5 py-3 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition font-medium shadow-md">
+                            Uncertain
+                        </button>
+                        <button @click="handleResponse('dont-know')"
+                                class="px-5 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-medium shadow-md">
+                            Don't Know
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Design 2: Sentence Highlight -->
+                <div v-if="currentDesign === 2" class="space-y-6">
+                    <div class="text-center mb-4">
+                        <h2 class="text-2xl font-bold text-gray-800">Sentence Highlight Design</h2>
+                        <p class="text-gray-600 text-sm">Click the highlighted word to see its meaning</p>
+                    </div>
+
+                    <div class="bg-white rounded-2xl shadow-xl p-12 border-2 border-gray-200 min-h-[400px] flex items-center justify-center">
+                        <div class="w-full space-y-8">
+                            <!-- Chinese Sentence with Clickable Highlight -->
+                            <div class="text-4xl text-center leading-relaxed">
+                                <span v-for="(char, idx) in currentWord.sentence.split('')" :key="idx">
+                                    <span v-if="currentWord.sentence.indexOf(currentWord.word) <= idx &&
+                                               idx < currentWord.sentence.indexOf(currentWord.word) + currentWord.word.length"
+                                          @click="translationVisible = !translationVisible"
+                                          class="bg-amber-400 px-1 font-bold text-gray-900 cursor-pointer hover:bg-amber-500 transition">{{ char }}</span>
+                                    <span v-else class="text-gray-800">{{ char }}</span>
+                                </span>
+                            </div>
+
+                            <!-- Translation (revealed on click) -->
+                            <transition name="fade">
+                                <div v-if="translationVisible" class="text-center space-y-4">
+                                    <div class="text-3xl font-bold text-amber-900">
+                                        {{ currentWord.word }} ({{ currentWord.pinyin }})
+                                    </div>
+                                    <div class="text-2xl text-gray-800">
+                                        = {{ currentWord.english }}
+                                    </div>
+                                    <div class="text-xl text-gray-600 italic pt-4">
+                                        "{{ currentWord.sentenceEnglish }}"
+                                    </div>
+                                </div>
+                            </transition>
+
+                            <!-- Hint when not revealed -->
+                            <div v-if="!translationVisible" class="text-center text-gray-500 text-sm">
+                                Click the highlighted word to reveal its meaning
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap gap-3 justify-center">
+                        <button @click="handleResponse('know-sentence')"
+                                class="px-5 py-3 bg-green-700 text-white rounded-lg hover:bg-green-800 transition font-medium shadow-md">
+                            Know Whole Sentence
+                        </button>
+                        <button @click="handleResponse('know-word')"
+                                class="px-5 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition font-medium shadow-md">
+                            Know the Word
+                        </button>
+                        <button @click="handleResponse('uncertain')"
+                                class="px-5 py-3 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition font-medium shadow-md">
+                            Uncertain
+                        </button>
+                        <button @click="handleResponse('dont-know')"
+                                class="px-5 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-medium shadow-md">
+                            Don't Know
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Design 3: Sentence First -->
+                <div v-if="currentDesign === 3" class="space-y-6">
+                    <div class="text-center mb-4">
+                        <h2 class="text-2xl font-bold text-gray-800">Sentence First Design</h2>
+                        <p class="text-gray-600 text-sm">Read the sentence, then get help if needed</p>
+                    </div>
+
+                    <div class="bg-white rounded-2xl shadow-xl p-10 min-h-[400px] flex items-center justify-center">
+                        <div class="w-full space-y-8">
+                            <!-- Chinese Sentence (always visible) -->
+                            <div class="text-4xl text-center leading-relaxed text-gray-800 font-medium">
+                                {{ currentWord.sentence }}
+                            </div>
+
+                            <!-- Help Button -->
+                            <div class="text-center">
+                                <button @click="translationVisible = !translationVisible"
+                                        class="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-medium shadow-md">
+                                    {{ translationVisible ? 'Hide Help' : 'Need Help?' }}
+                                </button>
+                            </div>
+
+                            <!-- Help Panel (revealed on demand) -->
+                            <transition name="fade">
+                                <div v-if="translationVisible" class="bg-purple-50 rounded-xl p-6 border-2 border-purple-300">
+                                    <div class="space-y-4">
+                                        <div class="text-center">
+                                            <div class="text-3xl font-bold text-gray-900 mb-2">
+                                                {{ currentWord.word }}
+                                            </div>
+                                            <div class="text-xl text-gray-700 mb-1">
+                                                {{ currentWord.pinyin }}
+                                            </div>
+                                            <div class="text-2xl font-semibold text-purple-800">
+                                                = {{ currentWord.english }}
+                                            </div>
+                                        </div>
+                                        <div class="border-t border-purple-300 pt-4">
+                                            <div class="text-lg text-center text-gray-700 italic">
+                                                "{{ currentWord.sentenceEnglish }}"
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </transition>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap gap-3 justify-center">
+                        <button @click="handleResponse('know-sentence')"
+                                class="px-5 py-3 bg-green-700 text-white rounded-lg hover:bg-green-800 transition font-medium shadow-md">
+                            Know Whole Sentence
+                        </button>
+                        <button @click="handleResponse('know-word')"
+                                class="px-5 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition font-medium shadow-md">
+                            Know the Word
+                        </button>
+                        <button @click="handleResponse('uncertain')"
+                                class="px-5 py-3 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition font-medium shadow-md">
+                            Uncertain
+                        </button>
+                        <button @click="handleResponse('dont-know')"
+                                class="px-5 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-medium shadow-md">
+                            Don't Know
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Design 4: Split View -->
+                <div v-if="currentDesign === 4" class="space-y-6">
+                    <div class="text-center mb-4">
+                        <h2 class="text-2xl font-bold text-gray-800">Split View Design</h2>
+                        <p class="text-gray-600 text-sm">Click to reveal translation</p>
+                    </div>
+
+                    <div class="grid md:grid-cols-2 gap-4">
+                        <!-- Chinese Side -->
+                        <div class="bg-gradient-to-br from-red-600 to-red-700 rounded-2xl shadow-xl p-8 text-white min-h-[350px]">
+                            <div class="h-full flex flex-col justify-center space-y-6">
+                                <div class="text-center">
+                                    <div class="text-5xl font-bold mb-4">
+                                        {{ currentWord.word }}
+                                    </div>
+                                    <div class="text-2xl mb-6">
+                                        {{ currentWord.pinyin }}
+                                    </div>
+                                </div>
+                                <div class="border-t border-white border-opacity-40 pt-6">
+                                    <div class="text-xl text-center leading-relaxed">
+                                        {{ currentWord.sentence }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- English Side - Click to Reveal -->
+                        <div @click="translationVisible = !translationVisible"
+                             class="bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl shadow-xl p-8 text-white cursor-pointer hover:from-blue-700 hover:to-blue-800 transition min-h-[350px]">
+                            <div class="h-full flex flex-col justify-center space-y-6">
+                                <transition name="fade" mode="out-in">
+                                    <!-- Hidden State -->
+                                    <div v-if="!translationVisible" key="hidden" class="text-center">
+                                        <div class="text-6xl mb-4">🔒</div>
+                                        <div class="text-xl">Click to reveal translation</div>
+                                    </div>
+                                    <!-- Revealed State -->
+                                    <div v-else key="visible" class="space-y-6">
+                                        <div class="text-center">
+                                            <div class="text-4xl font-bold mb-8">
+                                                {{ currentWord.english }}
+                                            </div>
+                                        </div>
+                                        <div class="border-t border-white border-opacity-40 pt-6">
+                                            <div class="text-xl text-center leading-relaxed italic">
+                                                {{ currentWord.sentenceEnglish }}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </transition>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap gap-3 justify-center mt-8">
+                        <button @click="handleResponse('know-sentence')"
+                                class="px-5 py-3 bg-green-700 text-white rounded-lg hover:bg-green-800 transition font-medium shadow-md">
+                            Know Whole Sentence
+                        </button>
+                        <button @click="handleResponse('know-word')"
+                                class="px-5 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition font-medium shadow-md">
+                            Know the Word
+                        </button>
+                        <button @click="handleResponse('uncertain')"
+                                class="px-5 py-3 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition font-medium shadow-md">
+                            Uncertain
+                        </button>
+                        <button @click="handleResponse('dont-know')"
+                                class="px-5 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-medium shadow-md">
+                            Don't Know
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Design 5: Minimalist Flow -->
+                <div v-if="currentDesign === 5" class="space-y-6">
+                    <div class="text-center mb-4">
+                        <h2 class="text-2xl font-bold text-gray-800">Minimalist Flow Design</h2>
+                        <p class="text-gray-600 text-sm">One thing at a time</p>
+                    </div>
+
+                    <div class="bg-white rounded-2xl shadow-xl p-12 min-h-[400px] flex items-center justify-center">
+                        <div class="w-full">
+                            <transition name="fade" mode="out-in">
+                                <!-- Phase 1: Chinese Word -->
+                                <div v-if="minimalistPhase === 1" key="phase1" class="text-center">
+                                    <div class="text-8xl font-bold text-gray-900 mb-8">
+                                        {{ currentWord.word }}
+                                    </div>
+                                    <button @click="minimalistPhase++"
+                                            class="text-gray-600 hover:text-gray-900 text-lg font-medium">
+                                        Tap to continue →
+                                    </button>
+                                </div>
+
+                                <!-- Phase 2: Pinyin -->
+                                <div v-else-if="minimalistPhase === 2" key="phase2" class="text-center">
+                                    <div class="text-5xl text-gray-700 mb-8">
+                                        {{ currentWord.pinyin }}
+                                    </div>
+                                    <button @click="minimalistPhase++"
+                                            class="text-gray-600 hover:text-gray-900 text-lg font-medium">
+                                        Tap to continue →
+                                    </button>
+                                </div>
+
+                                <!-- Phase 3: English -->
+                                <div v-else-if="minimalistPhase === 3" key="phase3" class="text-center">
+                                    <div class="text-5xl font-semibold text-blue-600 mb-8">
+                                        {{ currentWord.english }}
+                                    </div>
+                                    <button @click="minimalistPhase++"
+                                            class="text-gray-600 hover:text-gray-900 text-lg font-medium">
+                                        Tap to continue →
+                                    </button>
+                                </div>
+
+                                <!-- Phase 4: Chinese Sentence -->
+                                <div v-else-if="minimalistPhase === 4" key="phase4" class="text-center">
+                                    <div class="text-3xl text-gray-800 mb-8">
+                                        {{ currentWord.sentence }}
+                                    </div>
+                                    <button @click="minimalistPhase++"
+                                            class="text-gray-600 hover:text-gray-900 text-lg font-medium">
+                                        Tap to continue →
+                                    </button>
+                                </div>
+
+                                <!-- Phase 5: English Sentence -->
+                                <div v-else-if="minimalistPhase === 5" key="phase5" class="text-center">
+                                    <div class="text-2xl text-gray-700 italic mb-8">
+                                        {{ currentWord.sentenceEnglish }}
+                                    </div>
+                                    <button @click="minimalistPhase++"
+                                            class="text-gray-600 hover:text-gray-900 text-lg font-medium">
+                                        Tap to continue →
+                                    </button>
+                                </div>
+
+                                <!-- Phase 6: Response -->
+                                <div v-else key="phase6" class="text-center">
+                                    <div class="text-3xl font-medium text-gray-700 mb-12">
+                                        Did you know this word?
+                                    </div>
+                                    <div class="flex flex-col gap-3 max-w-sm mx-auto">
+                                        <button @click="handleResponse('know-sentence')"
+                                                class="px-6 py-3 bg-green-700 text-white rounded-lg hover:bg-green-800 transition font-medium text-lg shadow-md">
+                                            Know Whole Sentence
+                                        </button>
+                                        <button @click="handleResponse('know-word')"
+                                                class="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition font-medium text-lg shadow-md">
+                                            Know the Word
+                                        </button>
+                                        <button @click="handleResponse('uncertain')"
+                                                class="px-6 py-3 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition font-medium text-lg shadow-md">
+                                            Know Some
+                                        </button>
+                                        <button @click="handleResponse('dont-know')"
+                                                class="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-medium text-lg shadow-md">
+                                            Don't Know
+                                        </button>
+                                    </div>
+                                </div>
+                            </transition>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    // Design state
+                    currentDesign: 1,
+                    toolbarCollapsed: false,
+                    debugPanelCollapsed: false,
+
+                    // Drag state for toolbar
+                    isDraggingToolbar: false,
+                    toolbarDragOffset: { x: 0, y: 0 },
+                    toolbarPosition: { x: null, y: null }, // null = use default CSS positioning
+
+                    // Drag state for debug panel
+                    isDraggingDebug: false,
+                    debugDragOffset: { x: 0, y: 0 },
+                    debugPosition: { x: null, y: null },
+
+                    // Learning state
+                    currentWordIndex: 0,
+
+                    // Backend state simulation
+                    wordResponses: {}, // {wordIndex: 'know'|'uncertain'|'dont-know'}
+
+                    // Design-specific state
+                    cardFlipped: false,
+                    translationVisible: false,
+                    minimalistPhase: 1,
+
+                    // Feedback
+                    designFeedback: {
+                        1: '',
+                        2: '',
+                        3: '',
+                        4: '',
+                        5: ''
+                    },
+
+                    // Session data
+                    sessionData: {
+                        wordsReviewed: 0,
+                        lastVisit: Date.now()
+                    },
+
+                    // Mock vocabulary data
+                    vocabulary: [
+                        {
+                            word: '学习',
+                            pinyin: 'xuéxí',
+                            english: 'to study',
+                            sentence: '我每天都在学习中文',
+                            sentenceEnglish: 'I study Chinese every day'
+                        },
+                        {
+                            word: '吃饭',
+                            pinyin: 'chīfàn',
+                            english: 'to eat',
+                            sentence: '你想去哪里吃饭？',
+                            sentenceEnglish: 'Where do you want to go eat?'
+                        },
+                        {
+                            word: '朋友',
+                            pinyin: 'péngyou',
+                            english: 'friend',
+                            sentence: '我的朋友很多',
+                            sentenceEnglish: 'I have many friends'
+                        },
+                        {
+                            word: '工作',
+                            pinyin: 'gōngzuò',
+                            english: 'work',
+                            sentence: '他在北京工作',
+                            sentenceEnglish: 'He works in Beijing'
+                        },
+                        {
+                            word: '喜欢',
+                            pinyin: 'xǐhuan',
+                            english: 'to like',
+                            sentence: '我喜欢喝茶',
+                            sentenceEnglish: 'I like drinking tea'
+                        },
+                        {
+                            word: '时间',
+                            pinyin: 'shíjiān',
+                            english: 'time',
+                            sentence: '现在几点了？',
+                            sentenceEnglish: 'What time is it now?'
+                        },
+                        {
+                            word: '帮助',
+                            pinyin: 'bāngzhù',
+                            english: 'to help',
+                            sentence: '谢谢你的帮助',
+                            sentenceEnglish: 'Thank you for your help'
+                        },
+                        {
+                            word: '问题',
+                            pinyin: 'wèntí',
+                            english: 'question/problem',
+                            sentence: '这是一个好问题',
+                            sentenceEnglish: 'This is a good question'
+                        },
+                        {
+                            word: '认为',
+                            pinyin: 'rènwéi',
+                            english: 'to think/believe',
+                            sentence: '我认为这很重要',
+                            sentenceEnglish: 'I think this is very important'
+                        },
+                        {
+                            word: '开始',
+                            pinyin: 'kāishǐ',
+                            english: 'to begin',
+                            sentence: '我们现在开始吧',
+                            sentenceEnglish: "Let's begin now"
+                        },
+                        {
+                            word: '明白',
+                            pinyin: 'míngbai',
+                            english: 'to understand',
+                            sentence: '你明白我的意思吗？',
+                            sentenceEnglish: 'Do you understand what I mean?'
+                        },
+                        {
+                            word: '希望',
+                            pinyin: 'xīwàng',
+                            english: 'to hope',
+                            sentence: '我希望明天天气好',
+                            sentenceEnglish: 'I hope the weather is good tomorrow'
+                        },
+                        {
+                            word: '感觉',
+                            pinyin: 'gǎnjué',
+                            english: 'to feel',
+                            sentence: '我感觉很累',
+                            sentenceEnglish: 'I feel very tired'
+                        },
+                        {
+                            word: '容易',
+                            pinyin: 'róngyì',
+                            english: 'easy',
+                            sentence: '中文不太容易',
+                            sentenceEnglish: 'Chinese is not very easy'
+                        },
+                        {
+                            word: '决定',
+                            pinyin: 'juédìng',
+                            english: 'to decide',
+                            sentence: '我还没有决定',
+                            sentenceEnglish: "I haven't decided yet"
+                        }
+                    ]
+                };
+            },
+
+            computed: {
+                currentWord() {
+                    return this.vocabulary[this.currentWordIndex];
+                },
+
+                // Backend state calculations
+                backendState() {
+                    const responses = Object.values(this.wordResponses);
+                    const knowSentenceCount = responses.filter(r => r === 'know-sentence').length;
+                    const knowWordCount = responses.filter(r => r === 'know-word').length;
+                    const uncertainCount = responses.filter(r => r === 'uncertain').length;
+                    const dontKnowCount = responses.filter(r => r === 'dont-know').length;
+                    const totalResponses = responses.length;
+
+                    // Calculate estimated level (0-100)
+                    // know-sentence = 3 points, know-word = 2 points, uncertain = 1 point, don't know = 0 points
+                    const totalPoints = (knowSentenceCount * 3) + (knowWordCount * 2) + (uncertainCount * 1);
+                    const maxPoints = totalResponses * 3;
+                    const level = maxPoints > 0 ? Math.round((totalPoints / maxPoints) * 100) : 0;
+
+                    // Estimate vocabulary size based on performance
+                    // Assuming our 15 words represent different frequency bands
+                    const estimatedVocab = Math.round(knowSentenceCount * 150 + knowWordCount * 100 + uncertainCount * 50);
+
+                    return {
+                        level,
+                        estimatedVocab,
+                        knowSentenceCount,
+                        knowWordCount,
+                        uncertainCount,
+                        dontKnowCount,
+                        totalResponses,
+                        knowSentencePercentage: totalResponses > 0 ? Math.round((knowSentenceCount / totalResponses) * 100) : 0,
+                        knowWordPercentage: totalResponses > 0 ? Math.round((knowWordCount / totalResponses) * 100) : 0,
+                        uncertainPercentage: totalResponses > 0 ? Math.round((uncertainCount / totalResponses) * 100) : 0,
+                        dontKnowPercentage: totalResponses > 0 ? Math.round((dontKnowCount / totalResponses) * 100) : 0,
+                        confidence: totalResponses >= 10 ? 'High' : totalResponses >= 5 ? 'Medium' : 'Low'
+                    };
+                }
+            },
+
+            watch: {
+                currentDesign() {
+                    this.resetDesignState();
+                }
+            },
+
+            mounted() {
+                this.loadFromLocalStorage();
+            },
+
+            methods: {
+                // LocalStorage methods
+                saveToLocalStorage() {
+                    const data = {
+                        currentDesign: this.currentDesign,
+                        currentWordIndex: this.currentWordIndex,
+                        designFeedback: this.designFeedback,
+                        toolbarCollapsed: this.toolbarCollapsed,
+                        debugPanelCollapsed: this.debugPanelCollapsed,
+                        toolbarPosition: this.toolbarPosition,
+                        debugPosition: this.debugPosition,
+                        sessionData: this.sessionData,
+                        wordResponses: this.wordResponses,
+                        backendState: this.backendState // Save computed state for export
+                    };
+                    localStorage.setItem('langyPrototype', JSON.stringify(data));
+                },
+
+                loadFromLocalStorage() {
+                    const saved = localStorage.getItem('langyPrototype');
+                    if (saved) {
+                        try {
+                            const data = JSON.parse(saved);
+                            this.currentDesign = data.currentDesign || 1;
+                            this.currentWordIndex = data.currentWordIndex || 0;
+                            this.designFeedback = data.designFeedback || this.designFeedback;
+                            this.toolbarCollapsed = data.toolbarCollapsed || false;
+                            this.debugPanelCollapsed = data.debugPanelCollapsed || false;
+                            this.toolbarPosition = data.toolbarPosition || { x: null, y: null };
+                            this.debugPosition = data.debugPosition || { x: null, y: null };
+                            this.sessionData = data.sessionData || this.sessionData;
+                            this.wordResponses = data.wordResponses || {};
+                        } catch (e) {
+                            console.error('Error loading from localStorage:', e);
+                        }
+                    }
+                },
+
+                resetData() {
+                    if (confirm('Are you sure you want to reset all data? This cannot be undone.')) {
+                        localStorage.removeItem('langyPrototype');
+                        this.currentDesign = 1;
+                        this.currentWordIndex = 0;
+                        this.designFeedback = {1: '', 2: '', 3: '', 4: '', 5: ''};
+                        this.sessionData = {wordsReviewed: 0, lastVisit: Date.now()};
+                        this.wordResponses = {};
+                        this.resetDesignState();
+                        alert('All data has been reset!');
+                    }
+                },
+
+                // Export functionality
+                exportFeedback() {
+                    const exportData = {
+                        timestamp: new Date().toISOString(),
+                        currentDesign: this.currentDesign,
+                        designFeedback: this.designFeedback,
+                        sessionData: this.sessionData,
+                        progress: {
+                            currentWordIndex: this.currentWordIndex,
+                            totalWords: this.vocabulary.length
+                        },
+                        allFeedback: Object.entries(this.designFeedback)
+                            .filter(([_, feedback]) => feedback.trim())
+                            .map(([design, feedback]) => ({
+                                design: parseInt(design),
+                                designName: this.getDesignName(parseInt(design)),
+                                feedback: feedback
+                            }))
+                    };
+
+                    const blob = new Blob([JSON.stringify(exportData, null, 2)],
+                                         { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `langy-feedback-${Date.now()}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                },
+
+                getDesignName(num) {
+                    const names = {
+                        1: 'Card Flip',
+                        2: 'Sentence Highlight',
+                        3: 'Sentence First',
+                        4: 'Split View',
+                        5: 'Minimalist Flow'
+                    };
+                    return names[num] || 'Unknown';
+                },
+
+                // Learning interaction
+                handleResponse(response) {
+                    // Track response for backend state
+                    this.wordResponses[this.currentWordIndex] = response;
+
+                    this.sessionData.wordsReviewed++;
+                    this.sessionData.lastVisit = Date.now();
+
+                    // Move to next word
+                    this.currentWordIndex = (this.currentWordIndex + 1) % this.vocabulary.length;
+
+                    // Reset design-specific state
+                    this.resetDesignState();
+
+                    // Save progress
+                    this.saveToLocalStorage();
+                },
+
+                resetDesignState() {
+                    this.cardFlipped = false;
+                    this.translationVisible = false;
+                    this.minimalistPhase = 1;
+                },
+
+                // Draggable toolbar methods
+                startDragToolbar(event) {
+                    this.isDraggingToolbar = true;
+                    const rect = event.currentTarget.parentElement.getBoundingClientRect();
+                    this.toolbarDragOffset.x = event.clientX - rect.left;
+                    this.toolbarDragOffset.y = event.clientY - rect.top;
+                    document.addEventListener('mousemove', this.dragToolbar);
+                    document.addEventListener('mouseup', this.stopDragToolbar);
+                },
+
+                dragToolbar(event) {
+                    if (!this.isDraggingToolbar) return;
+                    this.toolbarPosition.x = event.clientX - this.toolbarDragOffset.x;
+                    this.toolbarPosition.y = event.clientY - this.toolbarDragOffset.y;
+                },
+
+                stopDragToolbar() {
+                    this.isDraggingToolbar = false;
+                    document.removeEventListener('mousemove', this.dragToolbar);
+                    document.removeEventListener('mouseup', this.stopDragToolbar);
+                    this.saveToLocalStorage();
+                },
+
+                // Draggable debug panel methods
+                startDragDebug(event) {
+                    this.isDraggingDebug = true;
+                    const rect = event.currentTarget.parentElement.getBoundingClientRect();
+                    this.debugDragOffset.x = event.clientX - rect.left;
+                    this.debugDragOffset.y = event.clientY - rect.top;
+                    document.addEventListener('mousemove', this.dragDebug);
+                    document.addEventListener('mouseup', this.stopDragDebug);
+                },
+
+                dragDebug(event) {
+                    if (!this.isDraggingDebug) return;
+                    this.debugPosition.x = event.clientX - this.debugDragOffset.x;
+                    this.debugPosition.y = event.clientY - this.debugDragOffset.y;
+                },
+
+                stopDragDebug() {
+                    this.isDraggingDebug = false;
+                    document.removeEventListener('mousemove', this.dragDebug);
+                    document.removeEventListener('mouseup', this.stopDragDebug);
+                    this.saveToLocalStorage();
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
