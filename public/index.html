@@ -233,13 +233,13 @@
                     </div>
 
                     <div class="flip-card" :class="{'flipped': cardFlipped}">
-                        <div class="flip-card-inner relative h-80">
-                            <!-- Front: Sentence with highlighted word -->
+                        <div class="flip-card-inner relative min-h-[400px]">
+                            <!-- Front: Sentence with highlighted word (like Design 2) -->
                             <div @click="cardFlipped = !cardFlipped"
-                                 class="flip-card-front absolute inset-0 bg-white rounded-2xl shadow-xl p-8 cursor-pointer border-4 border-blue-500">
-                                <div class="flex flex-col items-center justify-center h-full space-y-6">
+                                 class="flip-card-front absolute inset-0 bg-white rounded-2xl shadow-xl p-12 cursor-pointer border-2 border-gray-200">
+                                <div class="flex items-center justify-center h-full">
                                     <!-- Full sentence with highlighted word -->
-                                    <div class="text-3xl text-center leading-relaxed">
+                                    <div class="text-4xl text-center leading-relaxed">
                                         <span v-for="(char, idx) in currentWord.sentence.split('')" :key="idx">
                                             <span v-if="currentWord.sentence.indexOf(currentWord.word) <= idx &&
                                                        idx < currentWord.sentence.indexOf(currentWord.word) + currentWord.word.length"
@@ -247,25 +247,29 @@
                                             <span v-else class="text-gray-800">{{ char }}</span>
                                         </span>
                                     </div>
-                                    <!-- Pinyin for highlighted word -->
-                                    <div class="text-xl text-gray-700">
-                                        {{ currentWord.pinyin }}
-                                    </div>
-                                    <div class="text-gray-600 text-sm">
-                                        Click to see translation
-                                    </div>
                                 </div>
                             </div>
 
                             <!-- Back: Translation -->
                             <div @click="cardFlipped = !cardFlipped"
-                                 class="flip-card-back absolute inset-0 bg-blue-50 rounded-2xl shadow-xl p-8 cursor-pointer border-4 border-blue-500">
-                                <div class="flex flex-col items-center justify-center h-full text-gray-900 space-y-6">
-                                    <div class="text-3xl font-bold">
-                                        {{ currentWord.word }} = {{ currentWord.english }}
-                                    </div>
-                                    <div class="text-xl text-center text-gray-700 italic">
-                                        {{ currentWord.sentenceEnglish }}
+                                 class="flip-card-back absolute inset-0 bg-blue-50 rounded-2xl shadow-xl p-12 cursor-pointer border-2 border-gray-200">
+                                <div class="flex items-center justify-center h-full">
+                                    <div class="text-center space-y-6">
+                                        <!-- Chinese sentence -->
+                                        <div class="text-3xl text-gray-800 leading-relaxed">
+                                            {{ currentWord.sentence }}
+                                        </div>
+                                        <!-- Word breakdown -->
+                                        <div class="text-2xl font-bold text-amber-900">
+                                            {{ currentWord.word }} ({{ currentWord.pinyin }})
+                                        </div>
+                                        <div class="text-2xl text-gray-800">
+                                            = {{ currentWord.english }}
+                                        </div>
+                                        <!-- English sentence -->
+                                        <div class="text-xl text-gray-600 italic pt-4">
+                                            "{{ currentWord.sentenceEnglish }}"
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -682,8 +686,8 @@
                             word: '时间',
                             pinyin: 'shíjiān',
                             english: 'time',
-                            sentence: '现在几点了？',
-                            sentenceEnglish: 'What time is it now?'
+                            sentence: '你有时间吗？',
+                            sentenceEnglish: 'Do you have time?'
                         },
                         {
                             word: '帮助',
@@ -800,6 +804,12 @@
             },
 
             mounted() {
+                // Validate vocabulary data - ensure each word appears in its sentence
+                this.vocabulary.forEach((item, idx) => {
+                    if (item.sentence.indexOf(item.word) === -1) {
+                        console.warn(`⚠️ Vocabulary data error at index ${idx}: Word "${item.word}" not found in sentence "${item.sentence}"`);
+                    }
+                });
                 this.loadFromLocalStorage();
             },
 

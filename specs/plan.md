@@ -208,6 +208,46 @@ estimatedVocab = (knowSentence * 150) + (knowWord * 100) + (uncertain * 50)
 - **High contrast**: Accessibility (darker colors: 600-800)
 - **Amber highlights**: Better visibility than yellow
 
+## Known Issues & Lessons Learned
+
+### Issue: Word Not Found in Sentence (Fixed)
+**Problem:** The word "时间" was set with sentence "现在几点了？" but "时间" doesn't appear in that sentence. This caused the highlighting logic to fail because `indexOf()` returned -1.
+
+**Root Cause:** Mock data was created by writing natural-sounding sentences without programmatically verifying that the target word actually appears in each sentence.
+
+**Impact:**
+- Highlighting showed wrong characters
+- User saw incorrect word being taught
+- Data integrity issue
+
+**Fix:** Changed sentence to "你有时间吗？" which contains "时间"
+
+**Prevention Strategy:**
+1. **Validation Function Needed:** Add a computed property or validation that checks:
+   ```javascript
+   sentence.indexOf(word) !== -1
+   ```
+2. **Data Quality Check:** Before deploying vocabulary:
+   - Manually verify each word appears in its sentence
+   - Or use automated test to validate all vocabulary entries
+3. **Error Handling:** Add fallback behavior when `indexOf` returns -1:
+   - Could show error in debug panel
+   - Could skip highlighting if word not found
+   - Could log warning to console
+
+**Future Enhancement:** Add validation to `mounted()` hook:
+```javascript
+mounted() {
+    // Validate vocabulary data
+    this.vocabulary.forEach((item, idx) => {
+        if (item.sentence.indexOf(item.word) === -1) {
+            console.warn(`Word "${item.word}" not found in sentence at index ${idx}`);
+        }
+    });
+    this.loadFromLocalStorage();
+}
+```
+
 ## Future Enhancements
 - Connect to real backend API
 - Implement actual Bayesian model for level estimation
@@ -216,3 +256,4 @@ estimatedVocab = (knowSentence * 150) + (knowWord * 100) + (uncertain * 50)
 - Track time decay (forgetting curve)
 - Audio pronunciation
 - Spaced repetition algorithm
+- **Add vocabulary data validation** to catch mismatches
